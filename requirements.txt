@@ -1,0 +1,44 @@
+# -------------------------
+# Core Machine Learning
+# -------------------------
+tensorflow==2.15.0
+tensorflow-directml-plugin==0.4.0.dev230202
+numpy==1.26.4
+scipy==1.11.4
+scikit-learn==1.4.0
+pandas==2.2.0
+joblib==1.3.2
+
+# -------------------------
+# UI + Visualization
+# -------------------------
+flet==0.11.0
+matplotlib==3.8.2
+plotly==5.18.0
+
+# -------------------------
+# CST + Engineering Tools
+# -------------------------
+pyyaml==6.0.1
+tqdm==4.66.1
+
+# If using CST Python API externally (optional)
+# cst==0.3.0   # Remove comment only if installed from CST's pip source
+
+# -------------------------
+# Dev + Utils
+# -------------------------
+python-dotenv==1.0.1
+typing_extensions==4.10.0
+
+# -------------------------
+# Future multi-model support (ONNX/general)
+# -------------------------
+onnxruntime-gpu==1.17.0
+protobuf==4.25.2
+
+# -------------------------
+# OPTIONAL — If you plan to use Jupyter notebooks
+# -------------------------
+# jupyter
+# ipykernel
