@@ -1,76 +1,264 @@
-I'll include run instructions and notes so you can get started immediately.
+AI-Driven Antenna Optimization System (Mode 2)
 
-# AI Antenna Optimization — Mode 2 (Multi-family)
+A complete AI-CST closed-loop framework for antenna design, optimization, simulation, and self-learning.
+The system integrates:
 
-## Quick start
+Forward + inverse neural models for antenna parameter prediction
 
-1. Create dataset:
-   ```bash
-   python dataset_generator_mode2.py
+Lightweight optimizer for refinement
+
+CST Studio Suite parametric model builder
+
+S₁₁ extraction & performance evaluation
+
+Automatic feedback logging
+
+Autonomous self-learning retraining loop
+
+UI built using Flet for interactive antenna design
+
+1. Requirements
+Python Version
+
+This project requires:
+
+Python 3.10  or  Python 3.11
 
 
-Train forward models (per-family):
+(Recommended: Use a virtual environment.)
 
+Install Dependencies
+
+All required libraries are listed in requirements.txt.
+
+Install them with:
+
+pip install -r requirements.txt
+
+2. Setting Up the Project
+Clone the repository
+git clone https://github.com/<your-repo>/antenna-optimization-ai.git
+cd antenna-optimization-ai
+
+Create a virtual environment
+python -m venv .venv
+
+Activate the environment
+
+Windows:
+
+.venv\Scripts\activate
+
+
+Linux/macOS:
+
+source .venv/bin/activate
+
+Install dependencies
+pip install -r requirements.txt
+
+3. Project Structure (Overview)
+ai_core/               → Core AI logic (forward/inverse models, optimizers)
+cst_interface/         → CST geometry builders, command macros, S11 extraction
+feedback/              → Feedback logger + incremental retraining
+models/                → Saved Keras models + scalers
+trainers/              → Scripts for training forward + inverse model families
+ui/                    → Flet-based User Interface
+dataset_generator/     → Synthetic dataset generator for Mode 2
+automate.py            → Autonomous AI→CST→Feedback self-learning loop
+utils.py               → Antenna math utilities
+requirements.txt       → Required Python packages
+README.md              → Documentation file
+
+4. Running the Interactive UI (Flet)
+
+The UI provides:
+
+✔ Inverse AI prediction
+✔ Parameter refinement
+✔ CST simulation
+✔ S11 extraction
+✔ Automatic logging
+✔ Quick retraining
+✔ Dashboard & analytics
+
+Run the UI
+python ui/flet_ui_mode2.py
+
+
+The Flet window will open and you can:
+
+Select antenna family
+
+Enter target frequency & bandwidth
+
+Generate CST models
+
+View real-time results
+
+Run automatic feedback loop
+
+View dashboard charts
+
+5. Running the Autonomous Self-Learning System
+
+The automate.py script makes the system continuously:
+
+Generate random (Fr, BW) targets
+
+Predict parameters (inverse model)
+
+Refine using optimizer
+
+Run CST simulation
+
+Extract S11, real Fr & BW
+
+Log feedback
+
+Retrain quick model
+
+Run automated learning
+python automate.py
+
+
+This will run continuously unless you stop it:
+
+CTRL + C
+
+
+To run a single cycle, edit:
+
+RUNS = 1
+
+6. Training the AI Models
+
+Training scripts are in:
+
+trainers/
+
+
+Before training, ensure:
+
+You have a valid dataset at dataset_mode2.csv
+
+You have generated synthetic data using dataset_generator_mode2.py (if needed)
+
+Generate Mode-2 Dataset
+python dataset_generator_mode2.py
+
+Train Forward Models
 python trainers/train_forward_family.py
 
-
-Train inverse models (per-family):
-
+Train Inverse Models
 python trainers/train_inverse_family.py
 
 
-Start Flet UI:
+Models and scalers will be saved in the models/ directory:
+
+models/
+    forward_*.keras
+    forward_*_scaler.save
+    inverse_*.keras
+    inverse_*_scalerX.save
+    inverse_*_scalerY.save
+
+7. Quick Retrain (Online Learning)
+
+Each CST simulation logs:
+
+Target Fr, BW
+
+Predicted parameters
+
+Actual CST results
+
+S11 (dB)
+
+These are written to:
+
+feedback/ai_feedback_mode2.csv
+
+
+The incremental retraining script runs automatically,
+but you can run it manually:
+
+python feedback/ai_quick_retrain.py
+
+
+This trains a correction model that improves performance without retraining the full neural networks.
+
+8. CST Integration Notes
+
+The CST driver requires:
+
+CST Studio Suite installed
+
+Python CST interface available
+
+Correct path set for the antenna output:
+
+Defined in:
+
+ai_core/ai_config.py
+ANTENNA_PATH = r"...\cst_interface\output\antenna.cst"
+
+
+The CST pipeline automatically:
+
+Builds geometry
+
+Applies materials
+
+Defines ports
+
+Runs frequency sweep
+
+Extracts S₁₁
+
+Determines Fr_actual & BW_actual
+
+9. Dashboard & Analytics
+
+Inside the UI:
 
 python ui/flet_ui_mode2.py
 
 
-In the UI:
+Click "Show Dashboard" to view:
 
-Choose family, enter freq (GHz) and BW (MHz)
+Frequency error trend
 
-Click "Generate & Simulate"
+Bandwidth error trend
 
-Advanced mode: toggle to edit AI-suggested geometry
+Histogram of prediction errors
 
-After simulation completes:
+Summary statistics
 
-Feedback saved to feedback/ai_feedback_mode2.csv
+This uses the logged feedback file.
 
-Quick retrain is run and stored at feedback/ai_quick_retrain.save (if enough samples)
+10. Contributing
 
-Notes
+If you want to extend or fix functionality:
 
-Models are saved in models/forward_{family}.keras and models/inverse_{family}.keras.
+Create a new branch
 
-Use ai_core.ai_core_manager.AICoreManager from scripts to access model switcher programmatically.
+Commit changes with meaningful messages
 
-CST macros & commands.json must match the keys used in cst_driver_mode2.py.
+Open a pull request
 
-Place exact CST macro command names into commands.json for run_command to work.
+11. Known Limitations / To-Do
 
+CPW, U-Slot, E-Shape, Vivaldi geometry are placeholders
 
----
+Full CST parameter extraction may require refinement
 
-## Final Remarks, Caveats, and Next Steps
+Forward/inverse models can be enhanced with more training data
 
-1. **Works with your current dataset**: I used your patch-based formulas to generate a multi-family dataset and trained separate models per family. This avoids mixing incompatible geometries into a single model and makes the system easy to scale.
+Add multi-objective optimization (Fr, BW, S11, Gain)
 
-2. **Extensible CST driver**: The `cst_driver_mode2.py` implements practical geometry for each Mode 2 family and leaves clear placeholders for turning simple bricks into complex, realistic shapes using CST macros (meanders, U-slot, vivaldi taper). Replacing placeholders with exact macro sequences is straightforward.
+More visual analytics for model drift detection
 
-3. **Model switching**: `AICoreManager` loads family-specific models on demand and keeps them cached. Swap models by calling `ensure_family()` or directly via `predict_forward/predict_inverse`.
+12. License
 
-4. **Retraining**: `feedback/ai_quick_retrain.py` trains a quick MLP regressor for correction. Later, you can feed the feedback CSV into the per-family Keras trainers to retrain the actual forward/inverse Keras models (I can add that automated retrain pipeline next).
-
-5. **UI integration**: `flet_ui_mode2.py` is wired to the manager and CST driver, runs the entire pipeline in background threads, and logs feedback. The UI shows advanced toggle and manual overrides as you asked.
-
-6. **Unit & expected units**: All frequency inputs in UI are GHz, bandwidth in MHz. Internally we convert as needed. Parameter units: meters for physical dims — the UI displays meters for advanced fields. You already use mm in CST macros; the driver maps meters→mm.
-
----
-
-## Want me to do next (pick any/all)
-- A — Replace all placeholders in `cst_driver_mode2.py` with exact CST macro sequences you used from history (I can auto-generate macros if you paste the precise macro text for each geometry).
-- B — Add automated Keras retraining pipeline that periodically retrains forward/inverse models from the feedback CSV per-family (safe retrain with checkpointing).
-- C — Add unit tests and small local-run test harness to verify the pipeline with a mock CST (so you can test without CST installed).
-- D — Add a nicer dashboard page (Plotly live charts fed from feedback CSV) in the Flet UI and a historical model loss chart (read training logs).
-
-Tell me which next steps you want and I’ll deliver them. I can also push the full 
+MIT License (recommended; change if required).
