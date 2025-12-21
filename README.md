@@ -211,31 +211,132 @@ Stop anytime using:
 
 + Online correction learning
 
-+ Fully autonomous operation
+Training scripts are in:
 
-+ Safe parameter bounding
+trainers/
 
-#### Limitations
 
-+ Some antenna geometries are placeholders
+Before training, ensure:
 
-+ No multi-objective optimization yet (gain, efficiency)
+You have a valid dataset at dataset_mode2.csv
 
-+ Correction model is data-driven (not physics-informed)
+You have generated synthetic data using dataset_generator_mode2.py (if needed)
 
-## Future Extensions
+Generate Mode-2 Dataset
+python dataset_generator_mode2.py
 
-+ Goal-seeking mode with tolerance-based convergence
+Train Forward Models
+python trainers/train_forward_family.py
 
-+ Optimization integrated inside ParameterEngine
+Train Inverse Models
+python trainers/train_inverse_family.py
 
-+ Multi-objective learning (Fr, BW, S11, gain)
 
-+ Visualization of convergence trends
+Models and scalers will be saved in the models/ directory:
 
-Physics-regularized learning
+models/
+    forward_*.keras
+    forward_*_scaler.save
+    inverse_*.keras
+    inverse_*_scalerX.save
+    inverse_*_scalerY.save
 
-## License
+7. Quick Retrain (Online Learning)
 
-This project is released under the MIT License.
-You are free to use, modify, and distribute with attribution.
+Each CST simulation logs:
+
+Target Fr, BW
+
+Predicted parameters
+
+Actual CST results
+
+S11 (dB)
+
+These are written to:
+
+feedback/ai_feedback_mode2.csv
+
+
+The incremental retraining script runs automatically,
+but you can run it manually:
+
+python feedback/ai_quick_retrain.py
+
+
+This trains a correction model that improves performance without retraining the full neural networks.
+
+8. CST Integration Notes
+
+The CST driver requires:
+
+CST Studio Suite installed
+
+Python CST interface available
+
+Correct path set for the antenna output:
+
+Defined in:
+
+ai_core/ai_config.py
+ANTENNA_PATH = r"...\cst_interface\output\antenna.cst"
+
+
+The CST pipeline automatically:
+
+Builds geometry
+
+Applies materials
+
+Defines ports
+
+Runs frequency sweep
+
+Extracts S₁₁
+
+Determines Fr_actual & BW_actual
+
+9. Dashboard & Analytics
+
+Inside the UI:
+
+python ui/flet_ui_mode2.py
+
+
+Click "Show Dashboard" to view:
+
+Frequency error trend
+
+Bandwidth error trend
+
+Histogram of prediction errors
+
+Summary statistics
+
+This uses the logged feedback file.
+
+10. Contributing
+
+If you want to extend or fix functionality:
+
+Create a new branch
+
+Commit changes with meaningful messages
+
+Open a pull request
+
+11. Known Limitations / To-Do
+
+CPW, U-Slot, E-Shape, Vivaldi geometry are placeholders
+
+Full CST parameter extraction may require refinement
+
+Forward/inverse models can be enhanced with more training data
+
+Add multi-objective optimization (Fr, BW, S11, Gain)
+
+More visual analytics for model drift detection
+
+12. License
+
+MIT License (recommended; change if required).
