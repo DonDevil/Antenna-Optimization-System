@@ -1,264 +1,241 @@
-AI-Driven Antenna Optimization System (Mode 2)
+# AI-Driven Antenna Optimization System (Mode 2)
 
-A complete AI-CST closed-loop framework for antenna design, optimization, simulation, and self-learning.
-The system integrates:
+This project implements an AI-assisted closed-loop antenna design and optimization framework integrated with CST Studio Suite.
+It combines machine learning surrogate models, inverse parameter prediction, CST-based electromagnetic simulation, and online correction learning to iteratively improve antenna designs toward specified electrical targets.
 
-Forward + inverse neural models for antenna parameter prediction
+The system supports both interactive UI-based usage and fully autonomous overnight training.
 
-Lightweight optimizer for refinement
+## How the System Works
 
-CST Studio Suite parametric model builder
+The project is built around a closed-loop learning pipeline:
 
-S₁₁ extraction & performance evaluation
+#### Target Specification
++ The user (or automation script) specifies:
 
-Automatic feedback logging
++ Desired resonant frequency (GHz)
 
-Autonomous self-learning retraining loop
++ Desired bandwidth (MHz)
 
-UI built using Flet for interactive antenna design
++ Antenna family (e.g., rectangular patch, monopole, dipole)
 
-1. Requirements
-Python Version
+#### Inverse AI Prediction
++ A trained inverse neural network (ANN) predicts initial antenna geometry parameters that should meet the target specifications.
 
-This project requires:
+#### Parameter Engine (Core Logic)
+All parameter generation flows through a unified ParameterEngine, which:
 
-Python 3.10  or  Python 3.11
+ * Uses the inverse ANN as prior knowledge
 
+ * Applies learned correction from past CST simulations
 
-(Recommended: Use a virtual environment.)
+ * Introduces controlled exploration to avoid stagnation
 
-Install Dependencies
+ + Enforces safe parameter bounds for CST stability
 
-All required libraries are listed in requirements.txt.
+#### CST Simulation
+The generated parameters are passed to CST Studio Suite, which:
 
-Install them with:
++ Builds the antenna geometry
 
-pip install -r requirements.txt
++ Runs a frequency sweep
 
-2. Setting Up the Project
-Clone the repository
-git clone https://github.com/<your-repo>/antenna-optimization-ai.git
-cd antenna-optimization-ai
++ Extracts S₁₁, resonant frequency, and bandwidth
 
-Create a virtual environment
-python -m venv .venv
++ Feedback Logging
+CST results are logged as feedback, capturing:
 
-Activate the environment
++ Target specifications
 
-Windows:
++ Parameters actually used
 
-.venv\Scripts\activate
++ Actual CST results
 
+#### Online Correction Learning
++ A lightweight neural model is periodically retrained to learn parameter correction deltas, improving future predictions without retraining the main models.
 
-Linux/macOS:
++ This loop enables the system to improve over time for similar design targets.
 
-source .venv/bin/activate
+## Project Structure Overview
+```
+ai_core/
+├── ai_core_manager.py        # Loads and manages forward/inverse ANN models
+├── ai_config.py              # Global configuration and parameter ranges
+├── parameter_engine.py       # Unified parameter prediction & correction logic
 
-Install dependencies
-pip install -r requirements.txt
+cst_interface/
+├── cst_driver.py             # CST macro execution and S-parameter extraction
+├── cst_driver_mode2.py       # Family-specific antenna geometry builders
+├── database/
+│   ├── commands.json
+│   └── material_library.json
 
-3. Project Structure (Overview)
-ai_core/               → Core AI logic (forward/inverse models, optimizers)
-cst_interface/         → CST geometry builders, command macros, S11 extraction
-feedback/              → Feedback logger + incremental retraining
-models/                → Saved Keras models + scalers
-trainers/              → Scripts for training forward + inverse model families
-ui/                    → Flet-based User Interface
-dataset_generator/     → Synthetic dataset generator for Mode 2
-automate.py            → Autonomous AI→CST→Feedback self-learning loop
-utils.py               → Antenna math utilities
-requirements.txt       → Required Python packages
-README.md              → Documentation file
-
-4. Running the Interactive UI (Flet)
-
-The UI provides:
-
-✔ Inverse AI prediction
-✔ Parameter refinement
-✔ CST simulation
-✔ S11 extraction
-✔ Automatic logging
-✔ Quick retraining
-✔ Dashboard & analytics
-
-Run the UI
-python ui/flet_ui_mode2.py
-
-
-The Flet window will open and you can:
-
-Select antenna family
-
-Enter target frequency & bandwidth
-
-Generate CST models
-
-View real-time results
-
-Run automatic feedback loop
-
-View dashboard charts
-
-5. Running the Autonomous Self-Learning System
-
-The automate.py script makes the system continuously:
-
-Generate random (Fr, BW) targets
-
-Predict parameters (inverse model)
-
-Refine using optimizer
-
-Run CST simulation
-
-Extract S11, real Fr & BW
-
-Log feedback
-
-Retrain quick model
-
-Run automated learning
-python automate.py
-
-
-This will run continuously unless you stop it:
-
-CTRL + C
-
-
-To run a single cycle, edit:
-
-RUNS = 1
-
-6. Training the AI Models
-
-Training scripts are in:
-
-trainers/
-
-
-Before training, ensure:
-
-You have a valid dataset at dataset_mode2.csv
-
-You have generated synthetic data using dataset_generator_mode2.py (if needed)
-
-Generate Mode-2 Dataset
-python dataset_generator_mode2.py
-
-Train Forward Models
-python trainers/train_forward_family.py
-
-Train Inverse Models
-python trainers/train_inverse_family.py
-
-
-Models and scalers will be saved in the models/ directory:
+feedback/
+├── ai_feedback_mode2.csv     # Logged CST feedback (generated at runtime)
+├── ai_quick_retrain.py       # Online correction model trainer
+├── ai_quick_retrain.save     # Trained correction model (generated)
 
 models/
-    forward_*.keras
-    forward_*_scaler.save
-    inverse_*.keras
-    inverse_*_scalerX.save
-    inverse_*_scalerY.save
+├── forward_*.keras           # Forward ANN models (per antenna family)
+├── inverse_*.keras           # Inverse ANN models (per antenna family)
+├── *_scaler.save             # Feature scalers
 
-7. Quick Retrain (Online Learning)
+trainers/
+├── train_forward_family.py   # Train forward ANN models
+├── train_inverse_family.py   # Train inverse ANN models
 
-Each CST simulation logs:
+ui/
+├── flet_ui_mode2.py          # Interactive UI (Flet-based)
 
-Target Fr, BW
+automate.py                   # Fully autonomous training loop
+dataset_generator_mode2.py    # Synthetic dataset generator
+dataset_mode2.csv             # Generated training dataset
+utils.py                      # Antenna-related math utilities
+requirements.txt              # Python dependencies
+```
+## Installation Guide
+#### Prerequisites
 
-Predicted parameters
++ Python: 3.10 or 3.11
 
-Actual CST results
++ CST Studio Suite (installed and licensed)
 
-S11 (dB)
++ CST Python Interface available in your environment
 
-These are written to:
++ Windows OS recommended (CST dependency)
 
-feedback/ai_feedback_mode2.csv
+#### Clone the Repository
+    git clone https://github.com/<your-username>/ai-antenna-optimization.git
+    cd ai-antenna-optimization
 
+#### Create and Activate Virtual Environment
+    python -m venv .venv
+    .venv\Scripts\activate
 
-The incremental retraining script runs automatically,
-but you can run it manually:
+#### Install Dependencies
+    pip install -r requirements.txt
 
-python feedback/ai_quick_retrain.py
+#### Configure CST Output Path
 
+Edit the following file:
 
-This trains a correction model that improves performance without retraining the full neural networks.
+    ai_core/ai_config.py
 
-8. CST Integration Notes
+Set the correct CST project output path:
 
-The CST driver requires:
-
-CST Studio Suite installed
-
-Python CST interface available
-
-Correct path set for the antenna output:
-
-Defined in:
-
-ai_core/ai_config.py
-ANTENNA_PATH = r"...\cst_interface\output\antenna.cst"
-
-
-The CST pipeline automatically:
-
-Builds geometry
-
-Applies materials
-
-Defines ports
-
-Runs frequency sweep
-
-Extracts S₁₁
-
-Determines Fr_actual & BW_actual
-
-9. Dashboard & Analytics
-
-Inside the UI:
-
-python ui/flet_ui_mode2.py
+    ANTENNA_PATH = r"E:\Your\CST\Output\antenna.cst"
 
 
-Click "Show Dashboard" to view:
+Ensure this path is writable by CST.
 
-Frequency error trend
+## Training the AI Models (Required First)
+#### Step 1: Generate Synthetic Dataset
 
-Bandwidth error trend
+This generates physics-based antenna samples used for training.
 
-Histogram of prediction errors
+    python dataset_generator_mode2.py
+Output:
 
-Summary statistics
+    dataset_mode2.csv
+#### Step 2: Train Forward Models
 
-This uses the logged feedback file.
+Forward models predict electrical performance from geometry.
 
-10. Contributing
+    python trainers/train_forward_family.py
+Generated:
 
-If you want to extend or fix functionality:
+    models/forward_*.keras
 
-Create a new branch
+    models/forward_*_scaler.save
+#### Step 3: Train Inverse Models
 
-Commit changes with meaningful messages
+Inverse models predict geometry from target specifications.
 
-Open a pull request
+    python trainers/train_inverse_family.py
+Generated:
 
-11. Known Limitations / To-Do
+    models/inverse_*.keras
 
-CPW, U-Slot, E-Shape, Vivaldi geometry are placeholders
+    models/inverse_*_scalerX.save
 
-Full CST parameter extraction may require refinement
+    models/inverse_*_scalerY.save
+## Interactive Usage (UI Mode)
 
-Forward/inverse models can be enhanced with more training data
+The UI allows manual antenna design and CST simulation.
 
-Add multi-objective optimization (Fr, BW, S11, Gain)
+    python ui/flet_ui_mode2.py
+#### Features:
 
-More visual analytics for model drift detection
++ Select antenna family
 
-12. License
++ Enter target frequency and bandwidth
 
-MIT License (recommended; change if required).
++ Generate CST models
+
++ View real-time results
+
++ Automatic feedback logging
+
++ Online correction learning
+
+## Autonomous Training (Recommended for Fine-Tuning)
+
+For large-scale learning and overnight improvement, use automation.
+
+Run Autonomous Learning Loop
+
+    python automate.py
+What happens:
+
++ Random targets are generated
+
++ Parameters are predicted using ParameterEngine
+
++ CST simulations are executed
+
++ Feedback is logged
+
++ Correction model retrains periodically
+
++ System improves over time
+
+Stop anytime using:
+
+    CTRL + C
+
+## Current Capabilities and Limitations 
+#### Capabilities
+
++ Multi-family antenna support
+
++ CST-integrated simulation loop
+
++ Online correction learning
+
++ Fully autonomous operation
+
++ Safe parameter bounding
+
+#### Limitations
+
++ Some antenna geometries are placeholders
+
++ No multi-objective optimization yet (gain, efficiency)
+
++ Correction model is data-driven (not physics-informed)
+
+## Future Extensions
+
++ Goal-seeking mode with tolerance-based convergence
+
++ Optimization integrated inside ParameterEngine
+
++ Multi-objective learning (Fr, BW, S11, gain)
+
++ Visualization of convergence trends
+
+Physics-regularized learning
+
+10. License
+
+This project is released under the MIT License.
+You are free to use, modify, and distribute with attribution.
