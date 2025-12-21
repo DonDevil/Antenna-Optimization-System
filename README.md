@@ -235,7 +235,7 @@ Stop anytime using:
 
 Physics-regularized learning
 
-10. License
+## License
 
 This project is released under the MIT License.
 You are free to use, modify, and distribute with attribution.
