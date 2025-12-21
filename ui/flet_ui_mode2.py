@@ -1,18 +1,17 @@
 # ui/flet_ui_mode2.py
 import flet as ft
 import threading
-import time
 import os
 import queue
 import pandas as pd
 
-from ai_core.ai_core_manager import AICoreManager
+from ai_core.parameter_engine import ParameterEngine
 from cst_interface.cst_driver_mode2 import CSTDriverMode2
 from feedback.feedback_logger import log_feedback
 from feedback.ai_quick_retrain import quick_retrain
 from ai_core.ai_config import FAMILIES, ANTENNA_PATH
 
-ai_mgr = AICoreManager()
+engine = ParameterEngine()
 cst = CSTDriverMode2()
 
 FEEDBACK_CSV = r"feedback\ai_feedback_mode2.csv"
@@ -127,7 +126,7 @@ def main(page: ft.Page):
             page.update()
             
             show_loading("AI: Inverse prediction...")
-            params = ai_mgr.predict_inverse(family, Fr_t, BW_t)
+            params = engine.predict(family, Fr_t, BW_t)
             
             # Ensure params has exactly 5 elements: [param_a, param_b, feed_width, substrate_h, eps_r]
             if not isinstance(params, (list, tuple)) or len(params) < 5:
@@ -149,34 +148,7 @@ def main(page: ft.Page):
             enqueue_ui(fill)
             
             # Display initial inverse prediction
-            enqueue_ui(lambda: append_result(f"✓ Inverse prediction:\nParams: {[f'{p:.6f}' for p in params]}"))
-
-            show_loading("AI: Refining parameters...")
-            opt_params = params  # Default to original if optimization fails
-            try:
-                opt = ai_mgr.optimize_parameters(family, Fr_t, BW_t)
-                if opt and "params" in opt:
-                    opt_params = opt["params"]
-                    enqueue_ui(lambda: append_result(f"✓ Optimized parameters:\nParams: {[f'{p:.6f}' for p in opt_params]}"))
-            except Exception as e:
-                enqueue_ui(lambda: append_result(f"⚠ Optimization skipped: {str(e)[:100]}"))
-
-            # Use optimized parameters going forward
-            params = opt_params
-
-            # If user edits advanced fields
-            if advanced_chk.value:
-                try:
-                    params = [
-                        float(pa.value),        # param_a
-                        float(pb.value),        # param_b
-                        float(fw.value),        # feed_width
-                        float(sh.value),        # substrate_h
-                        float(er.value),        # eps_r
-                    ]
-                except Exception as ex:
-                    print(f"Error reading advanced fields: {ex}")
-                    pass
+            enqueue_ui(lambda: append_result(f" Inverse prediction:\nParams: {[f'{p:.6f}' for p in params]}"))
 
             # Build CST params dict
             try:
@@ -214,7 +186,7 @@ def main(page: ft.Page):
 
             def update_results():
                 final_msg = (
-                    f"\n✓ SIMULATION COMPLETE\n\n"
+                    f"\n SIMULATION COMPLETE\n\n"
                     f"Target: Fr={Fr_t:.3f} GHz, BW={BW_t:.2f} MHz\n"
                     f"Actual: Fr={Fr_a:.3f} GHz, BW={BW_a:.2f} MHz, S11={S11:.2f} dB\n\n"
                     f"Final Params: {[f'{p:.6f}' for p in params]}"

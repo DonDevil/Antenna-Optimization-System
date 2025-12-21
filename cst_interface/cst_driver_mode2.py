@@ -1,8 +1,6 @@
 # cst_interface/cst_driver_mode2.py
-import time
-import numpy as np
 from cst_interface.cst_driver import CSTDriver as BaseCSTDriver
-from ai_core.ai_config import DEFAULT_SUBSTRATE_H
+from ai_core.ai_config import DEFAULT_SUBSTRATE_H, DEFAULT_EPS_R
 
 class CSTDriverMode2(BaseCSTDriver):
     def __init__(self, cst_project=None):
@@ -46,7 +44,7 @@ class CSTDriverMode2(BaseCSTDriver):
         self.run_command("pick face", component_name="component1", solid_name="feed")
         self.run_command("select port", Xrange=f"-{self._mm(feed_w)/2:.4f}", XrangeEnd=f"{self._mm(feed_w)/2:.4f}",
                          Yrange="0", YrangeEnd="0", Zrange=f"{self._mm(S_h):.4f}", ZrangeEnd=f"{(self._mm(S_h)+0.035):.4f}")
-        self.run_command("run Solver")
+        #self.run_command("run Solver")
 
     def build_patch_circ(self, freq_GHz, params, substrate_name, conductor_name):
         # params: [radius, feed_width, substrate_h, eps_r, extra]

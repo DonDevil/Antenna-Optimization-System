@@ -4,7 +4,6 @@ import numpy as np
 from pathlib import Path
 from tensorflow.keras.models import load_model
 from ai_core.ai_config import *
-from sklearn.preprocessing import StandardScaler
 import scipy.optimize as opt
 
 MODELS_DIR = Path(MODELS_DIR)
