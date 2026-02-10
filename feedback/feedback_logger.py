@@ -4,7 +4,7 @@ import os
 import time
 from ai_core.ai_config import *
 
-FEEDBACK_FILE = r"feedback\ai_feedback_mode2.csv"
+FEEDBACK_FILE = r"feedback\ai_feedback.csv"
 os.makedirs(os.path.dirname(FEEDBACK_FILE), exist_ok=True)
 
 def ensure_header(num_params=5):

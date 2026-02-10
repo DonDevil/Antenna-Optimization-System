@@ -6,13 +6,13 @@ import queue
 import pandas as pd
 
 from ai_core.parameter_engine import ParameterEngine
-from cst_interface.cst_driver_mode2 import CSTDriverMode2
+from cst_interface.cst_driver import CSTDriver
 from feedback.feedback_logger import log_feedback
 from feedback.ai_quick_retrain import quick_retrain
 from ai_core.ai_config import FAMILIES, ANTENNA_PATH
 
 engine = ParameterEngine()
-cst = CSTDriverMode2()
+cst = CSTDriver()
 
 FEEDBACK_CSV = r"feedback\ai_feedback_mode2.csv"
 ANTENNA_PATH = ANTENNA_PATH

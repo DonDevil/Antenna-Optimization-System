@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 
 from ai_core.parameter_engine import ParameterEngine
-from cst_interface.cst_driver_mode2 import CSTDriverMode2
+from cst_interface.cst_driver import CSTDriver
 from feedback.feedback_logger import log_feedback
 from feedback.ai_quick_retrain import quick_retrain
 from ai_core.ai_config import ANTENNA_PATH
@@ -47,7 +47,7 @@ CONDUCTORS = [
 # ----------------------------------------------------------
 
 engine = ParameterEngine()
-cst = CSTDriverMode2()
+cst = CSTDriver()
 
 print("\n==============================================================")
 print("   AUTONOMOUS DATA GENERATOR (CST + AI FEEDBACK LOOP)")

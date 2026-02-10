@@ -7,8 +7,6 @@ from ai_core.ai_core_manager import AICoreManager
 from ai_core.ai_config import (
     FAMILIES,
     PATCH_W_RANGE, PATCH_L_RANGE, FEED_W_RANGE,
-    MONOPOLE_LENGTH_RANGE, MONOPOLE_WIDTH_RANGE,
-    DIPOLE_LENGTH_RANGE, DIPOLE_WIDTH_RANGE,
 )
 
 CORRECTION_MODEL_PATH = r"feedback\ai_quick_retrain.save"
@@ -74,27 +72,6 @@ class ParameterEngine:
             p[2] = np.clip(p[2], *FEED_W_RANGE)
             p[3] = np.clip(p[3], 0.0005, 0.005)
             p[4] = np.clip([4], 2.0, 10.0)  # default eps_r=4.0
-        
-        elif family == "monopole":
-            p[0] = np.clip(p[0], *MONOPOLE_LENGTH_RANGE)
-            p[1] = np.clip(p[1], *MONOPOLE_WIDTH_RANGE)
-            p[2] = 0.0  # feed_width not used
-            p[3] = np.clip(p[3], 0.0005, 0.005)
-            p[4] = np.clip([4], 2.0, 10.0)  
-        
-        elif family == "dipole":
-            p[0] = np.clip(p[0], *DIPOLE_LENGTH_RANGE)
-            p[1] = np.clip(p[1], *DIPOLE_WIDTH_RANGE)
-            p[2] = 0.0  # feed_width not used
-            p[3] = np.clip(p[3], 0.0005, 0.005)
-            p[4] = np.clip([4], 2.0, 10.0)  
-        
-        else:
-            # General fallback
-            p[0:2] = np.clip(p[0:2], 1e-4, 0.2)
-            p[2] = np.clip(p[2], 1e-4, 0.02)
-            p[3] = np.clip(p[3], 0.0005, 0.005)
-            p[4] = np.clip([4], 2.0, 10.0)
         
         return p.tolist()
     

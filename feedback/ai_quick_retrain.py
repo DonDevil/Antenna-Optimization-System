@@ -8,9 +8,9 @@ from sklearn.preprocessing import StandardScaler
 
 from ai_core.ai_config import FAMILIES, RANDOM_SEED
 
-FEEDBACK_FILE = r"feedback\ai_feedback_mode2.csv"
+FEEDBACK_FILE = r"feedback\ai_feedback.csv"
 MODEL_PATH = r"feedback\ai_quick_retrain.save"
-META_PATH = r".ai_retrain_meta_mode2"
+META_PATH = r".ai_retrain_meta"
 
 RETRAIN_MIN_SAMPLES = 30
 RETRAIN_EVERY = 10
