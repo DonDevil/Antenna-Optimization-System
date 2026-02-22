@@ -53,12 +53,13 @@ def quick_retrain():
     )
 
     # Target: parameter correction (negative error direction)
+    # Each parameter has independent correction based on antenna physics
     y = np.zeros((n, 5))
-    y[:, 0] = -df["err_Fr"].values
-    y[:, 1] = -df["err_Fr"].values
-    y[:, 2] = -0.1 * df["err_BW"].values
-    y[:, 3] = 0.0
-    y[:, 4] = 0.0
+    y[:, 0] = -0.3 * df["err_Fr"].values    # param_0 (W): moderate effect on frequency
+    y[:, 1] = -df["err_Fr"].values          # param_1 (L): direct effect on frequency
+    y[:, 2] = -0.15 * df["err_BW"].values   # param_2 (feed_w): affects bandwidth
+    y[:, 3] = 0.0                           # param_3 (substrate_h): fixed
+    y[:, 4] = 0.0                           # param_4 (eps_r): fixed
 
     X = df[X_cols].values
 

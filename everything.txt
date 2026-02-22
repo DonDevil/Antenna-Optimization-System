@@ -1,0 +1,986 @@
+cst_driver.py
+
+import json
+import os
+from cst.interface import DesignEnvironment
+import cst.results
+import time
+import numpy as np
+from ai_core.ai_config import ANTENNA_PATH
+from ai_core.ai_config import DEFAULT_SUBSTRATE_H, DEFAULT_EPS_R
+
+class CSTDriver:
+    def __init__(self, cst_project=None):
+        self.material_library = r"cst_interface\database\material_library.json"
+        self.cst_project = cst_project
+
+        # Load macro commands
+        json_path = os.path.join(os.path.dirname(__file__), r"database\commands.json")
+        with open(json_path, "r") as f:
+            self.commands = json.load(f)
+
+
+    def add_material(self,m_name):
+        def json_to_macro(material_json, material_name):
+            if material_name not in material_json:
+                raise ValueError("Material not found in JSON")
+            props = material_json[material_name]
+            lines = ['With Material']
+            no_value_flags = {'create', 'reset', 'resethblist', 'generatenonlinearcurve'}  # add flag-only keys here
+
+            for key, value in props.items():
+                capital_key = key.capitalize()
+                if key == 'name':
+                    lines.append(f'    .Name "{value}"')
+                elif key in no_value_flags:
+                    # No quotes, just the flag
+                    lines.append(f'    .{capital_key}')
+                else:
+                    if value == "" or value is None:
+                        lines.append(f'    .{capital_key} ""')
+                    elif isinstance(value, list):
+                        joined = ', '.join([f'"{v}"' for v in value])
+                        lines.append(f'    .{capital_key} {joined}')
+                    else:
+                        lines.append(f'    .{capital_key} "{value}"')
+            lines.append('End With')
+            return '\n'.join(lines)
+        with open(self.material_library, "r") as f:
+            loaded_json = json.load(f)
+
+        macro_reproduced = json_to_macro(loaded_json, m_name)
+        self.mws.model3d.add_to_history(m_name, macro_reproduced)
+
+    def run_command(self, name: str, **kwargs):
+        """
+        Run a predefined CST VBA macro by name with optional parameters.
+        Example:
+            driver.run_command("export_s11", filename="C:\\temp\\s11.txt")
+        """
+        if name not in self.commands:
+            raise ValueError(f"Unknown command: {name}")
+        
+
+        macro = self.commands[name]
+        if kwargs:
+            macro = macro.format(**kwargs)
+
+        self.mws.model3d.add_to_history(name, macro)
+    
+    def _mm(self, meters):
+        return float(meters * 1e3)
+
+    def _lambda_mm(self, freq_GHz):
+        return 300.0 / float(freq_GHz)
+
+  
+    def standard_antenna(self, family, shape, freq, substrate, conductor, params, retry=False, firsttime=True):
+        if retry and not firsttime:
+            print("Retrying antenna creation with corrected parameters...", params)
+            self.de.close()
+
+        if family == "Microstrip Patch" and shape == "Rectangular":
+            self.de = DesignEnvironment()
+            self.mws = self.de.new_mws() if self.cst_project is None else self.de.open_mws(self.cst_project)
+            self.add_material(substrate)
+            self.add_material(conductor)
+            time.sleep(2)
+            P_W = params['patch_W'] * 1e3  # m to mm
+            P_L = params['patch_L'] * 1e3  # m to mm
+            S_h = params['substrate_h'] * 1e3  # m to mm
+            S_W = params['substrate_W'] * 1e3  # m to mm
+            S_L = params['substrate_L'] * 1e3  # m to mm
+            F_W = params['feed_width'] * 1e3  # m to mm
+            F_type = params['feed_type']
+            P_W = params['patch_W'] * 1e3  # m to mm
+            freq = float(freq)  # GHz
+            print(P_W, P_L, S_h, S_W, S_L, F_W, F_type, freq)
+
+            lambda_0 = 300.0 / freq  # approx wavelength in mm
+            k_val = lambda_0 / 4
+
+
+            self.run_command("define brick",solid_name="substrate",
+                             component_name="component1",
+                             material=substrate,
+                             x1="-{:.4f}".format(S_W/2),
+                             x2="{:.4f}".format(S_W/2),
+                             y1="-{:.4f}".format(S_L/2),
+                             y2="{:.4f}".format(S_L/2),
+                             z1="0",
+                             z2="{:.4f}".format(S_h))
+            
+            self.run_command("define brick",solid_name="ground",
+                             component_name="component1",
+                             material=conductor,
+                             x1="-{:.4f}".format(S_W/2),
+                             x2="{:.4f}".format(S_W/2),
+                             y1="-{:.4f}".format(S_L/2),
+                             y2="{:.4f}".format(S_L/2),
+                             z1="0",
+                             z2="-0.035")
+            
+            self.run_command("define brick",solid_name="patch",
+                             component_name="component1",
+                             material=conductor,
+                             x1="-{:.4f}".format(P_W/2),
+                             x2="{:.4f}".format(P_W/2),
+                             y1="-{:.4f}".format(P_L/2),
+                             y2="{:.4f}".format(P_L/2),
+                             z1="{:.4f}".format(S_h),
+                             z2="{:.4f}".format(0.035+S_h))
+
+            self.run_command("define brick",solid_name="feed",
+                             component_name="component1",
+                             material=conductor,
+                             x1="-{:.4f}".format(F_W/2),
+                             x2="{:.4f}".format(F_W/2),
+                             y1="-{:.4f}".format(P_L/2),
+                             y2="-{:.4f}".format(S_L/2),
+                             z1="{sh:.4f}".format(sh=S_h),
+                             z2="{:.4f}".format(S_h+0.035),)
+            self.run_command("define boundary")
+            self.run_command("set solver freq range",resonant_frequency1=float(freq)-1.0, resonant_frequency2=float(freq)+1.0)
+            self.run_command("pick face",component_name="component1",solid_name="feed")
+            self.run_command("select port",
+                            Xrange=f"-{F_W/2:.4f}",    # start X
+                            XrangeEnd=f"{F_W/2:.4f}",  # end X
+                            XrangeAdd=f"{7.92}*{S_h:.4f}",  # as string (no evaluation)
+                            XrangeAddEnd=f"{7.92}*{S_h:.4f}",
+
+                            Yrange="0",    # start Y (single plane)
+                            YrangeEnd="0", # end Y same as start
+                            YrangeAdd="{7.92}*{S_h:.4f}",
+                            YrangeAddEnd="{7.92}*{S_h:.4f}",
+
+                            Zrange=f"{S_h:.4f}",       # start Z
+                            ZrangeEnd=f"{(S_h + 0.035):.4f}",  # end Z small thickness (e.g., 0.035 mm)
+                            ZrangeAdd="0.0",
+                            ZrangeAddEnd=f"{7.92}*{S_h:.4f}")
+            self.run_command("run Solver")
+            self.mws.save(path = ANTENNA_PATH, include_results = True, allow_overwrite = True)
+            self.de.close()
+
+    # ------------------------
+    # Dispatcher
+    # ------------------------
+    def create_and_run(self, family, freq_GHz, params, substrate_name, conductor_name):
+        """
+        family: string in FAMILIES
+        params: list of length >=5 (param_a,param_b,feed_w,substrate_h,eps_r)
+        """
+        if family == "patch_rect":
+            return self.build_patch_rect(freq_GHz, params, substrate_name, conductor_name)
+        
+        raise ValueError("Unsupported family: " + family)
+
+    def extract_s11_results(self,cst_path=ANTENNA_PATH):
+        """
+        Extract S11 from a CST .cst file and compute resonant frequency & bandwidth.
+        Returns: (Fr_GHz, BW_GHz, S11_min_dB)
+        """
+        # Load CST project results
+        project = cst.results.ProjectFile(cst_path, allow_interactive=True)
+        
+
+        # Access 3D results module and the S11 data
+        s11_item = project.get_3d().get_result_item(r"1D Results\S-Parameters\S1,1")
+
+        # Get frequency (GHz) and S11 data (complex values)
+        freqs = np.array(s11_item.get_xdata())  # typically in GHz
+        data = s11_item.get_data()
+        
+        # Extract S11 complex values from the data tuples
+        s11_complex = np.array([d[1] for d in data])
+        s11_db = 20 * np.log10(np.abs(s11_complex))
+        
+        # --- Find Resonant Frequency (minimum S11) ---
+        min_idx = np.argmin(s11_db)
+        Fr = freqs[min_idx]
+        S11_min = s11_db[min_idx]
+
+        # --- Find Bandwidth (-10 dB crossing points) ---
+        below_10_mask = s11_db <= -10
+        if np.any(below_10_mask):
+            indices = np.where(below_10_mask)[0]
+            f_low = freqs[indices[0]]
+            f_high = freqs[indices[-1]]
+            BW = f_high - f_low
+        else:
+            BW = 0.0  # no -10 dB crossings
+
+        return Fr, BW, S11_min
+
+ai_quick_retrain.py
+
+import os
+import joblib
+import numpy as np
+import pandas as pd
+
+from sklearn.neural_network import MLPRegressor
+from sklearn.preprocessing import StandardScaler
+
+from ai_core.ai_config import FAMILIES, RANDOM_SEED
+
+FEEDBACK_FILE = r"feedback\ai_feedback.csv"
+MODEL_PATH = r"feedback\ai_quick_retrain.save"
+META_PATH = r".ai_retrain_meta"
+
+RETRAIN_MIN_SAMPLES = 30
+RETRAIN_EVERY = 10
+
+
+def quick_retrain():
+    if not os.path.exists(FEEDBACK_FILE):
+        return False
+
+    df = pd.read_csv(FEEDBACK_FILE).dropna()
+    n = len(df)
+
+    if n < RETRAIN_MIN_SAMPLES:
+        return False
+
+    last_trained = 0
+    if os.path.exists(META_PATH):
+        try:
+            last_trained = int(open(META_PATH).read().strip())
+        except Exception:
+            last_trained = 0
+
+    if (n - last_trained) < RETRAIN_EVERY:
+        return False
+
+    # ---------------------------------
+    # Feature engineering
+    # ---------------------------------
+
+    fam_to_id = {f: i for i, f in enumerate(FAMILIES)}
+    df["family_id"] = df["family"].map(fam_to_id)
+
+    df["err_Fr"] = df["actual_Fr_GHz"] - df["target_Fr_GHz"]
+    df["err_BW"] = df["actual_BW_MHz"] - df["target_BW_MHz"]
+
+    X_cols = (
+        ["family_id", "target_Fr_GHz", "target_BW_MHz"]
+        + [f"param_{i}" for i in range(5)]
+        + ["err_Fr", "err_BW"]
+    )
+
+    # Target: parameter correction (negative error direction)
+    y = np.zeros((n, 5))
+    y[:, 0] = -df["err_Fr"].values
+    y[:, 1] = -df["err_Fr"].values
+    y[:, 2] = -0.1 * df["err_BW"].values
+    y[:, 3] = 0.0
+    y[:, 4] = 0.0
+
+    X = df[X_cols].values
+
+    # ---------------------------------
+    # Normalization
+    # ---------------------------------
+
+    X_scaler = StandardScaler()
+    y_scaler = StandardScaler()
+
+    Xn = X_scaler.fit_transform(X)
+    yn = y_scaler.fit_transform(y)
+
+    # ---------------------------------
+    # Train correction model
+    # ---------------------------------
+
+    model = MLPRegressor(
+        hidden_layer_sizes=(128, 64),
+        max_iter=600,
+        random_state=RANDOM_SEED,
+        early_stopping=True
+    )
+
+    model.fit(Xn, yn)
+
+    joblib.dump(
+        {
+            "sk_model": model,
+            "X_mean": X_scaler.mean_,
+            "X_std": X_scaler.scale_,
+            "y_mean": y_scaler.mean_,
+            "y_std": y_scaler.scale_,
+            "feature_cols": X_cols
+        },
+        MODEL_PATH
+    )
+
+    with open(META_PATH, "w") as f:
+        f.write(str(n))
+
+    print(f"[quick_retrain] correction model trained on {n} samples")
+
+    return True
+
+
+if __name__ == "__main__":
+    quick_retrain()
+
+feedback_logger.py
+# feedback/feedback_logger.py
+import csv
+import os
+import time
+from ai_core.ai_config import *
+
+FEEDBACK_FILE = r"feedback\ai_feedback.csv"
+os.makedirs(os.path.dirname(FEEDBACK_FILE), exist_ok=True)
+
+def ensure_header(num_params=5):
+    if not os.path.exists(FEEDBACK_FILE):
+        header = ["timestamp", "family", "target_Fr_GHz", "target_BW_MHz"]
+        header += [f"param_{i}" for i in range(num_params)]
+        header += ["substrate_h", "eps_r", "actual_Fr_GHz", "actual_BW_MHz", "S11_dB"]
+        with open(FEEDBACK_FILE, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(header)
+
+def log_feedback(family, target_Fr, target_BW, params, actual_Fr, actual_BW, S11):
+    """
+    params: list length >=5 (param_a,param_b,feed_width,substrate_h,eps_r)
+    """
+    ensure_header(num_params=5)
+    row = [time.time(), family, float(target_Fr), float(target_BW)]
+    row += [float(params[i]) for i in range(5)]
+    row += [float(params[3]), float(params[4]), float(actual_Fr), float(actual_BW), float(S11)]
+    with open(FEEDBACK_FILE, "a", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(row)
+
+train_forward_family.py
+# trainers/train_forward_family.py
+import pandas as pd
+import numpy as np
+import joblib
+from pathlib import Path
+from ai_core.ai_config import *
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.losses import MeanSquaredError
+
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
+df = pd.read_csv(DATASET_PATH)
+
+# For each family: build X,y and train separate model
+for fam in FAMILIES:
+    df_f = df[df['family'] == fam].copy()
+    if len(df_f) < 50:
+        print(f"[train_forward] skipping {fam}: not enough samples ({len(df_f)})")
+        continue
+
+    # Define features depending on family:
+    # We'll use param_a, param_b, feed_width_m, substrate_h, eps_r
+    X = df_f[['param_a', 'param_b', 'feed_width_m', 'substrate_h', 'eps_r']].values
+    y = df_f[['freq_Hz', 'bandwidth_Hz']].values
+    # convert targets to convenient units
+    y[:,0] = y[:,0] / 1e9  # GHz
+    y[:,1] = y[:,1] / 1e6  # MHz
+
+    scaler = StandardScaler()
+    Xs = scaler.fit_transform(X)
+
+    X_train, X_test, y_train, y_test = train_test_split(Xs, y, test_size=TRAIN_TEST_SPLIT, random_state=RANDOM_SEED)
+
+    model = Sequential([
+        Dense(256, activation='relu', input_shape=(X.shape[1],)),
+        Dense(128, activation='relu'),
+        Dense(64, activation='relu'),
+        Dense(2)
+    ])
+    model.compile(optimizer='adam', loss=MeanSquaredError())
+
+    print(f"[train_forward] training forward model for {fam} on {len(df_f)} samples")
+    model.fit(X_train, y_train, epochs=FORWARD_EPOCHS, batch_size=BATCH_SIZE, validation_split=0.15)
+
+    loss = model.evaluate(X_test, y_test)
+    if PRINT_ERROR:
+        print(f"[train_forward] test loss for {fam}: {loss}")
+
+    # save
+    model_path = MODELS_DIR / f"forward_{fam}.keras"
+    model.save(str(model_path))
+    joblib.dump(scaler, str(MODELS_DIR / f"forward_{fam}_scaler.save"))
+    print(f"[train_forward] saved forward model and scaler for {fam}")
+
+train_inverse_family.py
+# trainers/train_inverse_family.py
+import pandas as pd
+import numpy as np
+import joblib
+from pathlib import Path
+from ai_core.ai_config import *
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.losses import MeanSquaredError
+
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
+df = pd.read_csv(DATASET_PATH)
+
+for fam in FAMILIES:
+    df_f = df[df['family'] == fam].copy()
+    if len(df_f) < 50:
+        print(f"[train_inverse] skipping {fam}: not enough samples")
+        continue
+
+    X = df_f[['freq_Hz', 'bandwidth_Hz']].values
+    # convert to GHz / MHz
+    X[:,0] = X[:,0] / 1e9
+    X[:,1] = X[:,1] / 1e6
+
+    # output: param_a, param_b, feed_width_m, substrate_h, eps_r
+    y = df_f[['param_a', 'param_b', 'feed_width_m', 'substrate_h', 'eps_r']].values
+
+    scalerX = StandardScaler()
+    scalerY = StandardScaler()
+    Xs = scalerX.fit_transform(X)
+    ys = scalerY.fit_transform(y)
+
+    X_train, X_test, y_train, y_test = train_test_split(Xs, ys, test_size=TRAIN_TEST_SPLIT, random_state=RANDOM_SEED)
+
+    model = Sequential([
+        Dense(256, activation='relu', input_shape=(Xs.shape[1],)),
+        Dense(128, activation='relu'),
+        Dense(64, activation='relu'),
+        Dense(y.shape[1])
+    ])
+    model.compile(optimizer='adam', loss=MeanSquaredError())
+
+    print(f"[train_inverse] training inverse model for {fam} on {len(df_f)} samples")
+    model.fit(X_train, y_train, epochs=INVERSE_EPOCHS, batch_size=BATCH_SIZE, validation_split=0.15)
+
+    loss = model.evaluate(X_test, y_test)
+    if PRINT_ERROR:
+        print(f"[train_inverse] test loss for inverse {fam}: {loss}")
+
+    model_path = MODELS_DIR / f"inverse_{fam}.keras"
+    model.save(str(model_path))
+    joblib.dump(scalerX, str(MODELS_DIR / f"inverse_{fam}_scalerX.save"))
+    joblib.dump(scalerY, str(MODELS_DIR / f"inverse_{fam}_scalerY.save"))
+    print(f"[train_inverse] saved inverse model and scalers for {fam}")
+
+
+main.py
+# ui/flet_ui_mode2.py
+import flet as ft
+import threading
+import os
+import queue
+import pandas as pd
+
+from ai_core.parameter_engine import ParameterEngine
+from cst_interface.cst_driver import CSTDriver
+from feedback.feedback_logger import log_feedback
+from feedback.ai_quick_retrain import quick_retrain
+from ai_core.ai_config import FAMILIES, ANTENNA_PATH
+
+engine = ParameterEngine()
+cst = CSTDriver()
+
+FEEDBACK_CSV = r"feedback\ai_feedback_mode2.csv"
+ANTENNA_PATH = ANTENNA_PATH
+
+# Queue for thread-safe UI updates
+_ui_queue = queue.Queue()
+
+def enqueue_ui(fn):
+    """Put a callable in the UI queue to be executed on the UI thread."""
+    _ui_queue.put(fn)
+
+def main(page: ft.Page):
+    page.title = "AI Antenna Optimization — Mode 2"
+    page.window_width = 1000
+    page.window_height = 700
+    page.theme_mode = ft.ThemeMode.DARK
+    page.scroll = True
+
+    # Process UI queue periodically
+    def process_ui_queue():
+        while not _ui_queue.empty():
+            try:
+                fn = _ui_queue.get_nowait()
+                fn()
+            except queue.Empty:
+                break
+        # Schedule next check
+        threading.Timer(0.1, process_ui_queue).daemon = True
+        threading.Timer(0.1, process_ui_queue).start()
+    
+    process_ui_queue()
+
+    # ---------------- UI ELEMENTS ----------------
+    family_dd = ft.Dropdown(label="Family", width=300,
+                            options=[ft.dropdown.Option(x) for x in FAMILIES])
+
+    freq_field = ft.TextField(label="Resonant Frequency (GHz)", width=200)
+    bw_field = ft.TextField(label="Bandwidth (MHz)", width=200)
+
+    substrate_dd = ft.Dropdown(label="Substrate", width=240,
+                               options=[
+                                   ft.dropdown.Option("FR-4 (lossy)"),
+                                   ft.dropdown.Option("Rogers RT-duroid 5880 (lossy)"),
+                                   ft.dropdown.Option("Taconic TLY-3 (lossy)")
+                               ])
+
+    conductor_dd = ft.Dropdown(label="Conductor", width=240,
+                               options=[
+                                   ft.dropdown.Option("Copper (annealed)"),
+                                   ft.dropdown.Option("Aluminum"),
+                                   ft.dropdown.Option("Silver")
+                               ])
+
+    advanced_chk = ft.Checkbox(label="Advanced (edit AI params)", value=False)
+
+    pa = ft.TextField(label="patch_W", width=120)
+    pb = ft.TextField(label="patch_L", width=120)
+    fw = ft.TextField(label="feed_width", width=120)
+    sh = ft.TextField(label="substrate_h", width=120)
+    er = ft.TextField(label="eps_r", width=120)
+
+    result_display = ft.Text("Results will appear here.", selectable=True, size=14)
+
+    # Loading indicator - simple container, no overlay
+    loading_text = ft.Text("Processing...", size=16, color=ft.colors.WHITE)
+    
+    loading_indicator = ft.Container(
+        visible=False,
+        width=330,
+        padding=20,
+        content=ft.Column(
+            controls=[
+                ft.ProgressRing(width=70, height=70),
+                loading_text,
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=15
+        )
+    )
+
+    def show_loading(msg):
+        append_result(msg)
+        loading_indicator.visible = True
+        loading_text.value = msg
+        page.update()
+
+    def hide_loading():
+        loading_indicator.visible = False
+        page.update()
+    
+    def append_result(msg):
+        """Append message to result display (both overlay and main display)"""
+        result_display.value += msg + "\n"
+        page.update()
+
+    def show_snack(msg):
+        page.snack_bar = ft.SnackBar(
+            content=ft.Text(msg),
+            action="OK",
+            open=True,
+            duration=5000    # stays visible longer
+        )
+        page.update()
+
+    # ---------------- BACKGROUND PIPELINE ----------------
+    def pipeline(family, Fr_t, BW_t, substrate, conductor):
+        try:
+            # Clear previous results
+            result_display.value = ""
+            page.update()
+            
+            show_loading("AI: Inverse prediction...")
+            params = engine.predict(family, Fr_t, BW_t)
+            
+            # Ensure params has exactly 5 elements: [param_a, param_b, feed_width, substrate_h, eps_r]
+            if not isinstance(params, (list, tuple)) or len(params) < 5:
+                show_snack(f"Error: AI returned invalid params: {params}")
+                hide_loading()
+                return
+
+            # Update UI with AI params safely
+            def fill():
+                try:
+                    pa.value = f"{params[0]:.6f}"        # param_a
+                    pb.value = f"{params[1]:.6f}"        # param_b
+                    fw.value = f"{params[2]:.6f}"        # feed_width
+                    sh.value = f"{params[3]:.6f}"        # substrate_h
+                    er.value = f"{params[4]:.6f}"        # eps_r
+                    page.update()
+                except Exception as ex:
+                    print(f"Error filling UI: {ex}")
+            enqueue_ui(fill)
+            
+            # Display initial inverse prediction
+            enqueue_ui(lambda: append_result(f" Inverse prediction:\nParams: {[f'{p:.6f}' for p in params]}"))
+
+            # Build CST params dict
+            try:
+                cst_params = {
+                    "patch_W": params[0],
+                    "patch_L": params[1],
+                    "eps_eff": 1.0,  # calculated from substrate
+                    "substrate_h": params[3],
+                    "eps_r": params[4],
+                    "feed_width": params[2],
+                    "substrate_W": params[0] + 6 * params[3],
+                    "substrate_L": params[1] + 6 * params[3],
+                    "feed_type": 0
+                }
+            except Exception as ex:
+                show_snack(f"Error building CST params: {ex}")
+                hide_loading()
+                return
+
+            show_loading("CST: Building model...")
+            cst.standard_antenna("Microstrip Patch", "Rectangular",
+                                 Fr_t, substrate, conductor, cst_params)
+
+            show_loading("CST: Extracting S11...")
+            cst_path = ANTENNA_PATH
+            Fr_a, BW_a, S11 = cst.extract_s11_results(cst_path)
+
+            show_loading("Logging feedback...")
+            # params should have exactly 5 elements: [param_a, param_b, feed_width, substrate_h, eps_r]
+            params_for_log = list(params[:5]) if len(params) >= 5 else list(params) + [0] * (5 - len(params))
+            log_feedback(family, Fr_t, BW_t, params_for_log, Fr_a, BW_a, S11)
+
+            show_loading("Quick retrain...")
+            quick_retrain()
+
+            def update_results():
+                final_msg = (
+                    f"\n SIMULATION COMPLETE\n\n"
+                    f"Target: Fr={Fr_t:.3f} GHz, BW={BW_t:.2f} MHz\n"
+                    f"Actual: Fr={Fr_a:.3f} GHz, BW={BW_a:.2f} MHz, S11={S11:.2f} dB\n\n"
+                    f"Final Params: {[f'{p:.6f}' for p in params]}"
+                )
+                result_display.value += final_msg
+                page.update()
+
+            enqueue_ui(update_results)
+            enqueue_ui(hide_loading)  # Hide loading after results are displayed
+
+        except Exception as ex:
+            hide_loading()
+            show_snack(f"Pipeline error: {str(ex)}")
+
+    # ---------------- BUTTON EVENTS ----------------
+    def on_generate(e):
+        try:
+            family = family_dd.value
+            if not family:
+                return show_snack("Select antenna family")
+
+            Fr_t = float(freq_field.value)
+            BW_t = float(bw_field.value)
+        except:
+            return show_snack("Enter valid frequency & bandwidth")
+
+        substrate = substrate_dd.value or "FR-4 (lossy)"
+        conductor = conductor_dd.value or "Copper (annealed)"
+
+        threading.Thread(
+            target=pipeline,
+            args=(family, Fr_t, BW_t, substrate, conductor),
+            daemon=True
+        ).start()
+
+    def on_dashboard(e):
+        try:
+            if not os.path.exists(FEEDBACK_CSV):
+                return show_snack("No feedback file yet")
+
+            df = pd.read_csv(FEEDBACK_CSV)
+            if df.empty:
+                return show_snack("Feedback file is empty")
+
+            df["freq_err"] = df["actual_Fr_GHz"] - df["target_Fr_GHz"]
+            df["bw_err"] = df["actual_BW_MHz"] - df["target_BW_MHz"]
+
+            show_snack(
+                f"Avg Freq Error: {df.freq_err.mean():.3f} GHz\n"
+                f"Avg BW Error: {df.bw_err.mean():.2f} MHz"
+            )
+        except Exception as ex:
+            show_snack(f"Dashboard error: {ex}")
+
+    # ---------------- LAYOUT ----------------
+    # Main layout - controls at top with padding, results at bottom
+    page.add(
+        ft.Column([
+            # Top section: Input controls with padding
+            ft.Container(
+                content=ft.Column([
+                    ft.Row([family_dd, freq_field, bw_field]),
+                    ft.Row([substrate_dd, conductor_dd]),
+                    ft.Row([
+                        ft.ElevatedButton("Generate & Simulate", on_click=on_generate),
+                        ft.ElevatedButton("Show Dashboard", on_click=on_dashboard),
+                    ]),
+                    advanced_chk,
+                    ft.Row([pa, pb, fw, sh, er]),
+                ], spacing=10),
+                padding=ft.padding.only(top=100)
+            ),
+            
+            ft.Divider(),
+            
+            # Bottom section: Results display (full width, stays at bottom)
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("Results:", size=14, weight="bold"),
+                    ft.Container(
+                        content=ft.Column([result_display], scroll=ft.ScrollMode.AUTO),
+                        border=ft.border.all(1, ft.colors.GREY_700),
+                        padding=10,
+                        height=300,
+                        expand=True
+                    ),
+                    ft.Container(
+                        content=ft.Column([loading_indicator]),
+                        padding=ft.padding.only(left=50),
+                        height=300,
+                        expand=True
+                    ),
+                ], expand=True, spacing=5),
+                padding=ft.padding.only(left=20, right=20, bottom=20),
+                expand=True
+            )
+        ], spacing=10, expand=True, scroll=ft.ScrollMode.AUTO)
+    )
+
+if __name__ == "__main__":
+    ft.app(target=main)
+
+automate.py
+# auto_data_generator.py
+import time
+import random
+import os
+from datetime import datetime
+
+from ai_core.parameter_engine import ParameterEngine
+from cst_interface.cst_driver import CSTDriver
+from feedback.feedback_logger import log_feedback
+from feedback.ai_quick_retrain import quick_retrain
+from ai_core.ai_config import ANTENNA_PATH
+
+# ----------------------------------------------------------
+# CONFIGURATION
+# ----------------------------------------------------------
+FEEDBACK_CSV = r"feedback\ai_feedback_mode2.csv"
+
+# define a frequency sweep range (GHz)
+FREQ_MIN = 1.0
+FREQ_MAX = 10.0
+
+# define bandwidth sweep range (MHz)
+BW_MIN = 50
+BW_MAX = 800
+
+# number of runs (None for infinite loop)
+RUNS = None  # set to integer if you want a fixed number
+
+# delay between runs (so you don’t overload CST)
+DELAY_SECONDS = 3
+
+# substrate and conductor pool
+SUBSTRATES = [
+    "FR-4 (lossy)",
+    "Rogers RT-duroid 5880 (lossy)",
+    "Taconic TLY-3 (lossy)"
+]
+
+CONDUCTORS = [
+    "Copper (annealed)",
+    "Aluminum",
+    "Silver"
+]
+
+# ----------------------------------------------------------
+# INITIALIZE
+# ----------------------------------------------------------
+
+engine = ParameterEngine()
+cst = CSTDriver()
+
+print("\n==============================================================")
+print("   AUTONOMOUS DATA GENERATOR (CST + AI FEEDBACK LOOP)")
+print("==============================================================")
+print(" Running with real CST simulations. Press CTRL+C to stop.\n")
+
+
+# ----------------------------------------------------------
+# UTILITY FUNCTIONS
+# ----------------------------------------------------------
+
+def random_targets():
+    """Generate random frequency and bandwidth."""
+    f = random.uniform(FREQ_MIN, FREQ_MAX)
+    bw = random.uniform(BW_MIN, BW_MAX)
+    return round(f, 4), round(bw, 3)
+
+
+def random_family():
+    """Pick a random antenna family."""
+    return 'patch_rect'
+
+
+def random_materials():
+    """Random substrate and conductor."""
+    return random.choice(SUBSTRATES), random.choice(CONDUCTORS)
+
+# ----------------------------------------------------------
+# MAIN LOOP EXECUTION
+# ----------------------------------------------------------
+
+def run_cycle():
+    try:
+        family = random_family()
+        target_Fr, target_BW = random_targets()
+        substrate, conductor = random_materials()
+
+        print(f"\n[{datetime.now()}] Cycle start")
+        print(f"Family={family}, Target Fr={target_Fr} GHz, BW={target_BW} MHz")
+
+        # Unified parameter prediction (inverse + correction + exploration)
+        params = engine.predict(
+            family=family,
+            target_Fr=target_Fr,
+            target_BW=target_BW,
+            explore=True
+        )
+
+        # CST parameter mapping
+        cst_params = {
+            "patch_W": params[0],
+            "patch_L": params[1],
+            "eps_eff": 1.0,
+            "substrate_h": params[3],
+            "eps_r": params[4],
+            "feed_width": params[2],
+            "substrate_W": params[0] + 6 * params[3],
+            "substrate_L": params[1] + 6 * params[3],
+            "feed_type": 0
+        }
+
+        print("Running CST...")
+        cst.standard_antenna(
+            "Microstrip Patch",
+            "Rectangular",
+            target_Fr,
+            substrate,
+            conductor,
+            cst_params
+        )
+
+        Fr_actual, BW_actual, S11 = cst.extract_s11_results(ANTENNA_PATH)
+
+        print(f"CST → Fr={Fr_actual:.4f} GHz, BW={BW_actual:.2f} MHz, S11={S11:.2f} dB")
+
+        # Log consistent feedback (params actually used)
+        log_feedback(
+            family,
+            target_Fr,
+            target_BW,
+            params[:5],
+            Fr_actual,
+            BW_actual,
+            S11
+        )
+
+        # Incremental correction learning
+        quick_retrain()
+
+        print("Cycle complete ✔")
+
+    except Exception as e:
+        print(" Cycle failed:", str(e))
+
+# ----------------------------------------------------------
+# START EXECUTION LOOP
+# ----------------------------------------------------------
+
+def main():
+    count = 0
+    while True:
+        run_cycle()
+        count += 1
+
+        if RUNS is not None and count >= RUNS:
+            break
+
+        print(f"Sleeping {DELAY_SECONDS} seconds before next cycle...\n")
+        time.sleep(DELAY_SECONDS)
+
+
+if __name__ == "__main__":
+    main()
+
+dataset_generator.py
+# dataset_generator_mode2.py
+import numpy as np
+import pandas as pd
+from ai_core.ai_config import *
+from utils import rect_patch_L_from_freq, bandwidth_estimate_patch, effective_eps
+
+def generate_mode2_dataset(samples=SAMPLES, seed=RANDOM_SEED):
+    np.random.seed(seed)
+    rows = []
+    families = np.random.choice(FAMILIES, samples)
+    for fam in families:
+        f = np.random.uniform(1.0e9, 6.0e9)  # Hz
+        if fam == "patch_rect":
+            W = np.random.uniform(*PATCH_W_RANGE)
+            L, eps_eff = rect_patch_L_from_freq(f, DEFAULT_EPS_R, DEFAULT_SUBSTRATE_H, W)
+            feed_w = np.random.uniform(*FEED_W_RANGE)
+            feed_type = np.random.randint(0, 4)
+            BW = bandwidth_estimate_patch(f, W, DEFAULT_SUBSTRATE_H, DEFAULT_EPS_R, feed_factor=1.0 + (feed_type-1)*0.05)
+            rows.append([fam, f, BW, W, L, eps_eff, DEFAULT_SUBSTRATE_H, DEFAULT_EPS_R, feed_w, feed_type])
+        
+    cols = [
+        "family", "freq_Hz", "bandwidth_Hz",
+        "param_a", "param_b", "eps_eff",
+        "substrate_h", "eps_r", "feed_width_m", "extra"
+    ]
+    df = pd.DataFrame(rows, columns=cols)
+    df.to_csv(DATASET_PATH, index=False)
+    print("Saved dataset to:", DATASET_PATH, "rows:", len(df))
+    return df
+
+if __name__ == "__main__":
+    generate_mode2_dataset()
+utils.py
+# utils.py
+import numpy as np
+import math
+from ai_core.ai_config import C
+
+def effective_eps(eps_r, W, h):
+    return (eps_r + 1)/2 + (eps_r - 1)/2 * (1 + 12*h/W)**-0.5
+
+def rect_patch_L_from_freq(f, eps_r, h, W):
+    eps_eff = effective_eps(eps_r, W, h)
+    delta_L = 0.412 * h * ((eps_eff + 0.3)*(W/h + 0.264)) / ((eps_eff - 0.258)*(W/h + 0.8))
+    L = (C / (2 * f * math.sqrt(eps_eff))) - 2*delta_L
+    return L, eps_eff
+
+def bandwidth_estimate_patch(f, W, h, eps_r, feed_factor=1.0):
+    BW_frac = (1.5 * h / W) * np.sqrt(eps_r)
+    return BW_frac * f * feed_factor
+
+def hz_to_ghz(hz): return hz/1e9
+def hz_to_mhz(hz): return hz/1e6
+def ghz_to_hz(ghz): return ghz*1e9
+def mhz_to_hz(mhz): return mhz*1e6
+

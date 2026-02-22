@@ -88,12 +88,11 @@ def run_cycle():
         print(f"\n[{datetime.now()}] Cycle start")
         print(f"Family={family}, Target Fr={target_Fr} GHz, BW={target_BW} MHz")
 
-        # Unified parameter prediction (inverse + correction + exploration)
+        # Unified parameter prediction (inverse + correction)
         params = engine.predict(
             family=family,
-            target_Fr=target_Fr,
-            target_BW=target_BW,
-            explore=True
+            target_Fr_GHz=target_Fr,
+            target_BW_MHz=target_BW
         )
 
         # CST parameter mapping

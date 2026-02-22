@@ -14,34 +14,57 @@ from ai_core.ai_config import FAMILIES, ANTENNA_PATH
 engine = ParameterEngine()
 cst = CSTDriver()
 
-FEEDBACK_CSV = r"feedback\ai_feedback_mode2.csv"
+FEEDBACK_CSV = r"feedback\ai_feedback.csv"
 ANTENNA_PATH = ANTENNA_PATH
 
 # Queue for thread-safe UI updates
 _ui_queue = queue.Queue()
+_shutdown_flag = False
+_timer_ref = None
 
 def enqueue_ui(fn):
     """Put a callable in the UI queue to be executed on the UI thread."""
     _ui_queue.put(fn)
 
 def main(page: ft.Page):
+    global _shutdown_flag, _timer_ref
+    
     page.title = "AI Antenna Optimization — Mode 2"
     page.window_width = 1000
     page.window_height = 700
     page.theme_mode = ft.ThemeMode.DARK
     page.scroll = True
+    
+    # Reset shutdown flag on startup
+    _shutdown_flag = False
+    
+    def on_close(e):
+        global _shutdown_flag
+        _shutdown_flag = True
+        if _timer_ref:
+            _timer_ref.cancel()
+    
+    page.on_close = on_close
 
     # Process UI queue periodically
     def process_ui_queue():
+        global _shutdown_flag, _timer_ref
+        
+        if _shutdown_flag:
+            return
+            
         while not _ui_queue.empty():
             try:
                 fn = _ui_queue.get_nowait()
                 fn()
             except queue.Empty:
                 break
-        # Schedule next check
-        threading.Timer(0.1, process_ui_queue).daemon = True
-        threading.Timer(0.1, process_ui_queue).start()
+        
+        # Schedule next check only if not shutting down
+        if not _shutdown_flag:
+            _timer_ref = threading.Timer(0.1, process_ui_queue)
+            _timer_ref.daemon = True
+            _timer_ref.start()
     
     process_ui_queue()
 
@@ -114,7 +137,7 @@ def main(page: ft.Page):
             content=ft.Text(msg),
             action="OK",
             open=True,
-            duration=5000    # stays visible longer
+            duration=8000    # stays visible longer
         )
         page.update()
 
@@ -287,4 +310,4 @@ def main(page: ft.Page):
     )
 
 if __name__ == "__main__":
-    ft.app(target=main)
+    ft.app(target=main, view=ft.AppView.WEB_BROWSER)

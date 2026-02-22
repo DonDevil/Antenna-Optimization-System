@@ -5,7 +5,6 @@ import cst.results
 import time
 import numpy as np
 from ai_core.ai_config import ANTENNA_PATH
-from ai_core.ai_config import DEFAULT_SUBSTRATE_H, DEFAULT_EPS_R
 
 class CSTDriver:
     def __init__(self, cst_project=None):
@@ -72,7 +71,7 @@ class CSTDriver:
         return 300.0 / float(freq_GHz)
 
   
-    def standard_antenna(self, family, shape, freq, substrate, conductor, params, retry=False, firsttime=True):
+    def standard_antenna(self, family, shape, freq, substrate, conductor, params, retry=False, firsttime=True, file_location=ANTENNA_PATH):
         if retry and not firsttime:
             print("Retrying antenna creation with corrected parameters...", params)
             self.de.close()
@@ -156,8 +155,8 @@ class CSTDriver:
                             ZrangeAdd="0.0",
                             ZrangeAddEnd=f"{7.92}*{S_h:.4f}")
             self.run_command("run Solver")
-            self.mws.save(path = ANTENNA_PATH, include_results = True, allow_overwrite = True)
-            self.de.close()
+            self.mws.save(path = file_location, include_results = True, allow_overwrite = True)
+            #self.de.close()
 
     # ------------------------
     # Dispatcher

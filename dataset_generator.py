@@ -16,12 +16,12 @@ def generate_mode2_dataset(samples=SAMPLES, seed=RANDOM_SEED):
             feed_w = np.random.uniform(*FEED_W_RANGE)
             feed_type = np.random.randint(0, 4)
             BW = bandwidth_estimate_patch(f, W, DEFAULT_SUBSTRATE_H, DEFAULT_EPS_R, feed_factor=1.0 + (feed_type-1)*0.05)
-            rows.append([fam, f, BW, W, L, eps_eff, DEFAULT_SUBSTRATE_H, DEFAULT_EPS_R, feed_w, feed_type])
+            rows.append([fam, f, BW, W, L, feed_w, DEFAULT_SUBSTRATE_H, DEFAULT_EPS_R, feed_type])
         
     cols = [
         "family", "freq_Hz", "bandwidth_Hz",
-        "param_a", "param_b", "eps_eff",
-        "substrate_h", "eps_r", "feed_width_m", "extra"
+        "param_a", "param_b", "feed_width_m",
+        "substrate_h", "eps_r", "extra"
     ]
     df = pd.DataFrame(rows, columns=cols)
     df.to_csv(DATASET_PATH, index=False)
