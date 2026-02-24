@@ -8,14 +8,15 @@ from ai_core.ai_core_manager import AICoreManager
 import math
 import numpy as np
 import pandas as pd
+import time
 
 engine = ParameterEngine()
 cst = CSTDriver()
 ai_core = AICoreManager()
 
 # Convergence tolerances
-FR_TOLERANCE_GHZ = 0.05  # ±50 MHz
-BW_TOLERANCE_MHZ = 50     # ±50 MHz
+FR_TOLERANCE_GHZ = 0.01  # ±10 MHz
+BW_TOLERANCE_MHZ = 10     # ±10 MHz
 MAX_ITERATIONS = 10
 
 def run_once(
@@ -35,7 +36,7 @@ def run_once(
     # 2. Adapt params → CST schema
     cst_params = patch_rect_to_cst_params(params)
 
-    # 3. Run CST
+    # 3. Run CST (close after single run)
     cst.standard_antenna(
         family="Microstrip Patch",
         shape="Rectangular",
@@ -43,13 +44,36 @@ def run_once(
         substrate=substrate,
         conductor=conductor,
         params=cst_params,
+        close_design=True,
         file_location=file_location
     )
 
     # 4. Extract results
     Fr_a, BW_a, S11 = cst.extract_s11_results(file_location)
+    
+    # 5. Validate extracted results
+    print(f"\n[VALIDATION] Checking extracted results...")
+    print(f"  Fr_a: {Fr_a:.6f} GHz (expected ~{target_Fr_GHz:.4f} GHz)")
+    print(f"  BW_a: {BW_a:.2f} MHz (expected ~{target_BW_MHz:.2f} MHz)")
+    print(f"  S11: {S11:.2f} dB (target: better is more negative)")
+    
+    # Validate frequency is within 50% of target
+    if Fr_a < 0.5 * target_Fr_GHz or Fr_a > 1.5 * target_Fr_GHz:
+        print(f"[WARNING] Resonant frequency {Fr_a:.4f} GHz deviates > 50% from target {target_Fr_GHz:.4f} GHz")
+    
+    # Validate bandwidth is reasonable (should not be < 0.5 MHz or > target*3)
+    if BW_a < 0.5:
+        print(f"[WARNING] Bandwidth {BW_a:.2f} MHz is suspiciously small (< 0.5 MHz)")
+    elif BW_a > target_BW_MHz * 3:
+        print(f"[WARNING] Bandwidth {BW_a:.2f} MHz exceeds 3x target ({target_BW_MHz*3:.2f} MHz)")
+    
+    # Validate S11 is negative (should be < 0 for good match)
+    if S11 > -3:
+        print(f"[WARNING] S11 {S11:.2f} dB is not sufficiently negative (poor match)")
+    
+    print()  # newline for clarity
 
-    # 5. Log feedback
+    # 6. Log feedback
     log_feedback(
         family="patch_rect",
         target_Fr=target_Fr_GHz,
@@ -69,7 +93,8 @@ def run_iterative(
     substrate="FR-4 (lossy)",
     conductor="Copper (annealed)",
     file_location=ANTENNA_PATH,
-    verbose=True
+    verbose=True,
+    close_final_design=True
 ):
     """
     Iteratively run AI prediction and adaptive parameter correction until target is achieved.
@@ -77,10 +102,18 @@ def run_iterative(
     After 10 iterations, runs an 11th iteration with the best result found.
     Triggers model retraining via feedback learning system.
     
+    Args:
+        target_Fr_GHz: Target resonant frequency in GHz
+        target_BW_MHz: Target bandwidth in MHz
+        substrate: Substrate material name
+        conductor: Conductor material name
+        file_location: Path where CST design file will be saved
+        verbose: Print detailed iteration information
+        close_final_design: Whether to close the design after the 11th iteration (False for persistent mode)
+    
     Returns: (best_params, best_Fr_a, best_BW_a, best_S11, iteration_count, convergence_history, best_iteration)
     """
     convergence_history = []
-    firsttime = True
     
     # Tracking for adaptive learning
     params = None
@@ -201,7 +234,7 @@ def run_iterative(
         # 2. Adapt params → CST schema
         cst_params = patch_rect_to_cst_params(params)
 
-        # 3. Run CST
+        # 3. Run CST (close after each iteration to save resources)
         cst.standard_antenna(
             family="Microstrip Patch",
             shape="Rectangular",
@@ -209,19 +242,26 @@ def run_iterative(
             substrate=substrate,
             conductor=conductor,
             params=cst_params,
-            file_location=file_location,
-            firsttime=firsttime,
-            retry=(not firsttime)
+            close_design=True,
+            file_location=file_location
         )
-        firsttime = False
 
         # 4. Extract results
         Fr_a, BW_a, S11 = cst.extract_s11_results(file_location)
         
+        # 5. Validate extracted results
+        if verbose:
+            if Fr_a < 0.5 * target_Fr_GHz or Fr_a > 1.5 * target_Fr_GHz:
+                print(f"  [⚠ WARNING] Frequency {Fr_a:.4f} GHz deviates > 50% from target {target_Fr_GHz:.4f} GHz")
+            if BW_a < 0.5:
+                print(f"  [⚠ WARNING] Bandwidth {BW_a:.2f} MHz is suspiciously small (anomaly risk)")
+            if S11 > -3:
+                print(f"  [⚠ WARNING] S11 {S11:.2f} dB is poor (not negative enough)")
+        
         if verbose:
             print(f"CST Result: Fr={Fr_a:.4f} GHz (target: {target_Fr_GHz:.4f}), BW={BW_a:.2f} MHz (target: {target_BW_MHz:.2f}), S11={S11:.2f} dB")
 
-        # 5. Log feedback
+        # 6. Log feedback
         log_feedback(
             family="patch_rect",
             target_Fr=target_Fr_GHz,
@@ -232,7 +272,7 @@ def run_iterative(
             S11=S11
         )
         
-        # 6. Check convergence
+        # 7. Check convergence
         Fr_error = abs(Fr_a - target_Fr_GHz)
         BW_error = abs(BW_a - target_BW_MHz)
         converged = Fr_error <= FR_TOLERANCE_GHZ and BW_error <= BW_TOLERANCE_MHZ
@@ -276,7 +316,16 @@ def run_iterative(
         print(f"RUNNING 11TH ITERATION WITH BEST PARAMETERS...")
         print(f"{'='*60}")
     
-    # ===== ITERATION 11: Run with BEST parameters found =====
+    # ===== ITERATION 11: Run with BEST parameters =====
+    # NOTE: Control whether to close the design based on mode:
+    # - BATCH MODE (automate.py): close_final_design=True
+    #   * Closes the design cleanly after saving
+    #   * Fresh data extracted from disk
+    #   * No file handle accumulation
+    # - INTERACTIVE/PERSISTENT MODE (ui/new.py): close_final_design=False  
+    #   * Design stays open for user review
+    #   * User can manually close or configure for next run
+    #
     best_params_cst = patch_rect_to_cst_params(best_params)
     
     cst.standard_antenna(
@@ -286,13 +335,25 @@ def run_iterative(
         substrate=substrate,
         conductor=conductor,
         params=best_params_cst,
-        file_location=file_location,
-        firsttime=False,
-        retry=True
+        close_design=close_final_design,  # Use parameter to control behavior
+        file_location=file_location
     )
     
-    # Extract final results
+    # Wait a moment to ensure file I/O completes
+    time.sleep(0.5)
+    
+    # Extract final results (reading fresh data from closed/saved file)
     Fr_final, BW_final, S11_final = cst.extract_s11_results(file_location)
+    
+    # Validate final results
+    if verbose:
+        print(f"\n[FINAL VALIDATION]")
+        if Fr_final < 0.5 * target_Fr_GHz or Fr_final > 1.5 * target_Fr_GHz:
+            print(f"  [⚠ WARNING] Final frequency {Fr_final:.4f} GHz deviates > 50% from target")
+        if BW_final < 0.5:
+            print(f"  [⚠ WARNING] Final bandwidth {BW_final:.2f} MHz is suspiciously small")
+        if S11_final > -3:
+            print(f"  [⚠ WARNING] Final S11 {S11_final:.2f} dB is poor")
     
     if verbose:
         print(f"\n=== ITERATION 11/11 (FINAL - BEST RESULT) ===")
@@ -336,7 +397,7 @@ def run_iterative(
             print(f"  The system has learned from this optimization run.")
         else:
             print(f"⚠ Model retraining not yet triggered (may need more samples)")
-            print(f"  [Requires 30+ total feedback samples, then every 10 new samples]")
+            print(f"  [Requires 30+ total feedback samples, then every 30 new samples]")
     
     if verbose:
         print(f"\n{'='*60}")

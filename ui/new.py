@@ -269,7 +269,8 @@ def main(page : f.Page):
                         substrate=substrate_name,
                         conductor=conductor_name,
                         file_location=file_location,
-                        verbose=True
+                        verbose=True,
+                        close_final_design=False  # Keep design open for persistent mode
                     )
                     params, Fr_a, BW_a, S11, iterations, history, best_iter = result
                     
