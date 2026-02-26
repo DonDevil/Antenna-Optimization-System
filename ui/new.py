@@ -3,7 +3,6 @@ import queue
 import threading
 from pipeline import run_once, run_iterative
 import os
-from ai_core import ai_config
 
 _ui_queue = queue.Queue()
 _shutdown_flag = False
@@ -12,8 +11,6 @@ _timer_ref = None
 def enqueue_ui(fn):
     """Put a callable in the UI queue to be executed on the UI thread."""
     _ui_queue.put(fn)
-
-
 
 def main(page : f.Page):
     global _shutdown_flag, _timer_ref
@@ -270,7 +267,7 @@ def main(page : f.Page):
                         conductor=conductor_name,
                         file_location=file_location,
                         verbose=True,
-                        close_final_design=False  # Keep design open for persistent mode
+                        close_final_design=not show_output.value  # Close window if show_output is disabled, keep open if enabled
                     )
                     params, Fr_a, BW_a, S11, iterations, history, best_iter = result
                     
@@ -307,7 +304,8 @@ def main(page : f.Page):
                         target_BW_MHz=target_BW,
                         substrate=substrate_name,
                         conductor=conductor_name,
-                        file_location=file_location
+                        file_location=file_location,
+                        close_design=not show_output.value  # Close window if show_output is disabled, keep open if enabled
                     )
 
                     def update_ui():

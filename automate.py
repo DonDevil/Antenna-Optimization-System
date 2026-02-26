@@ -10,7 +10,6 @@ The AI model retrains automatically every 30 new samples (after 30 initial sampl
 
 import time
 import random
-import os
 from datetime import datetime
 
 from ai_core.parameter_engine import ParameterEngine

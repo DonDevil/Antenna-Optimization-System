@@ -6,7 +6,6 @@ Usage: python test_extraction.py
 """
 
 import numpy as np
-from cst_interface.cst_driver import CSTDriver
 from ai_core.ai_config import ANTENNA_PATH
 
 def test_extraction_logic():

@@ -15,7 +15,6 @@ r = cst.extract_s11_results(r"E:\Final Year Project\antenna\2.4- planar.cst")
 print(r)'''
 
 from cst.interface import DesignEnvironment
-import cst.results
 
 de = DesignEnvironment()
 

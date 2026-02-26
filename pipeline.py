@@ -5,9 +5,7 @@ from cst_interface.param_adapter import patch_rect_to_cst_params
 from feedback.feedback_logger import log_feedback
 from feedback.ai_quick_retrain import quick_retrain
 from ai_core.ai_core_manager import AICoreManager
-import math
 import numpy as np
-import pandas as pd
 import time
 
 engine = ParameterEngine()
@@ -24,8 +22,21 @@ def run_once(
     target_BW_MHz,
     substrate="FR-4 (lossy)",
     conductor="Copper (annealed)",
-    file_location=ANTENNA_PATH
+    file_location=ANTENNA_PATH,
+    close_design=True
 ):
+    """Run a single antenna simulation and extract results.
+    
+    Args:
+        target_Fr_GHz: Target resonant frequency in GHz
+        target_BW_MHz: Target bandwidth in MHz
+        substrate: Substrate material name
+        conductor: Conductor material name
+        file_location: Path where CST design file will be saved
+        close_design: Whether to close the design after running (False for persistent mode)
+    
+    Returns: (params, Fr_a, BW_a, S11)
+    """
     # 1. AI inverse design
     params = engine.predict(
         family="patch_rect",
@@ -36,7 +47,7 @@ def run_once(
     # 2. Adapt params → CST schema
     cst_params = patch_rect_to_cst_params(params)
 
-    # 3. Run CST (close after single run)
+    # 3. Run CST
     cst.standard_antenna(
         family="Microstrip Patch",
         shape="Rectangular",
@@ -44,7 +55,7 @@ def run_once(
         substrate=substrate,
         conductor=conductor,
         params=cst_params,
-        close_design=True,
+        close_design=close_design,
         file_location=file_location
     )
 
