@@ -15,7 +15,7 @@ ai_core = AICoreManager()
 # Convergence tolerances
 FR_TOLERANCE_GHZ = 0.01  # ±10 MHz
 BW_TOLERANCE_MHZ = 10     # ±10 MHz
-MAX_ITERATIONS = 10
+MAX_ITERATIONS = 50
 
 def run_once(
     target_Fr_GHz,
