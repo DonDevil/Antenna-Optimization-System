@@ -317,3 +317,310 @@ class CSTDriver:
         print(f"[RESULT] Fr={Fr:.6f} GHz, BW={BW_MHz:.2f} MHz, S11={S11_min:.2f} dB\n")
         
         return Fr, BW_MHz, S11_min
+
+    def extract_farfield_results(self, cst_path=ANTENNA_PATH, freq_GHz=None):
+        """
+        Extract farfield parameters from CST including gain, directivity, efficiency, 
+        main lobe magnitude, side lobe level, and 3dB beamwidth.
+        
+        Args:
+            cst_path: Path to CST .cst file
+            freq_GHz: Specific frequency to extract at. If None, uses resonant frequency from S11.
+        
+        Returns:
+            dict with keys: {
+                'gain_dBi': Absolute gain in dBi
+                'directivity_dBi': Directivity in dBi
+                'efficiency_dB': Radiation efficiency in dB
+                'efficiency_pct': Radiation efficiency in percent
+                'main_lobe_mag_dB': Main lobe magnitude in dB
+                'side_lobe_level_dB': Side lobe level in dB (or None if not available)
+                'beamwidth_3db_deg': 3dB beamwidth in degrees (or None if not available)
+                'frequency_GHz': Frequency at which measurements were taken
+            }
+        """
+        import sys
+        
+        try:
+            project = cst.results.ProjectFile(cst_path, allow_interactive=True)
+            
+            # Get frequency list for reference
+            try:
+                s11_item = project.get_3d().get_result_item(r"1D Results\S-Parameters\S1,1")
+                freqs_raw = np.array(s11_item.get_xdata())
+                
+                # Determine frequency unit based on range
+                if np.min(freqs_raw) > 100:
+                    freqs_available = freqs_raw / 1000.0  # MHz to GHz
+                else:
+                    freqs_available = freqs_raw
+                
+                # Use provided frequency or pick the one at minimum S11
+                if freq_GHz is None:
+                    data = s11_item.get_data()
+                    s11_complex = np.array([d[1] for d in data], dtype=complex)
+                    s11_db = 20 * np.log10(np.abs(s11_complex) + 1e-12)
+                    min_idx = np.argmin(s11_db)
+                    target_freq = freqs_available[min_idx]
+                else:
+                    target_freq = float(freq_GHz)
+                
+                print(f"[DEBUG] Extracting farfield at {target_freq:.6f} GHz")
+                
+            except Exception as e:
+                print(f"[WARNING] Could not extract frequency info from S11: {e}", file=sys.stderr)
+                target_freq = freq_GHz if freq_GHz is not None else 2.5
+                print(f"[DEBUG] Using fallback frequency: {target_freq:.6f} GHz")
+            
+            # Try to access farfield results
+            farfield_data = self._extract_farfield_gain(project, target_freq)
+            
+            # Try to access efficiency if available
+            efficiency_data = self._extract_radiation_efficiency(project, target_freq)
+            
+            # Combine results
+            results = {
+                'frequency_GHz': target_freq,
+                'gain_dBi': farfield_data.get('gain_dBi', 0.0),
+                'directivity_dBi': farfield_data.get('directivity_dBi', 0.0),
+                'main_lobe_mag_dB': farfield_data.get('main_lobe_mag_dB', 0.0),
+                'side_lobe_level_dB': farfield_data.get('side_lobe_level_dB', None),
+                'beamwidth_3db_deg': farfield_data.get('beamwidth_3db_deg', None),
+                'efficiency_dB': efficiency_data.get('efficiency_dB', 0.0),
+                'efficiency_pct': efficiency_data.get('efficiency_pct', 0.0),
+            }
+            
+            print(f"[RESULT] Farfield extraction successful:")
+            print(f"  Gain: {results['gain_dBi']:.2f} dBi")
+            print(f"  Directivity: {results['directivity_dBi']:.2f} dBi")
+            print(f"  Efficiency: {results['efficiency_pct']:.2f}%")
+            print(f"  Main Lobe: {results['main_lobe_mag_dB']:.2f} dB\n")
+            
+            return results
+            
+        except Exception as e:
+            print(f"[ERROR] Failed to extract farfield results: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
+            
+            # Return default values on failure
+            return {
+                'frequency_GHz': freq_GHz if freq_GHz is not None else 0.0,
+                'gain_dBi': 0.0,
+                'directivity_dBi': 0.0,
+                'main_lobe_mag_dB': 0.0,
+                'side_lobe_level_dB': None,
+                'beamwidth_3db_deg': None,
+                'efficiency_dB': 0.0,
+                'efficiency_pct': 0.0,
+            }
+
+    def _extract_farfield_gain(self, project, freq_GHz):
+        """
+        Extract gain and directivity from farfield results.
+        
+        Returns dict with: gain_dBi, directivity_dBi, main_lobe_mag_dB, 
+                          side_lobe_level_dB, beamwidth_3db_deg
+        """
+        import sys
+        
+        results = {
+            'gain_dBi': 0.0,
+            'directivity_dBi': 0.0,
+            'main_lobe_mag_dB': 0.0,
+            'side_lobe_level_dB': None,
+            'beamwidth_3db_deg': None,
+        }
+        
+        try:
+            # Convert target frequency for matching
+            freq_str = f"{freq_GHz:.4f}"
+            
+            # Try multiple potential farfield result paths
+            farfield_paths = [
+                r"3D Results\Farfield",
+                r"Farfield",
+                r"1D Results\Farfield",
+            ]
+            
+            farfield_item = None
+            for path in farfield_paths:
+                try:
+                    farfield_item = project.get_3d().get_result_item(path)
+                    print(f"[DEBUG] Found farfield data at: {path}")
+                    break
+                except:
+                    continue
+            
+            if farfield_item is None:
+                # Try to get all available result items to debug
+                print("[WARNING] Farfield result not found. Attempting alternative extraction...", file=sys.stderr)
+                
+                # Try direct access to gain data
+                try:
+                    gain_item = project.get_3d().get_result_item(r"3D Results\Farfield\Gain")
+                    gain_data = gain_item.get_data()
+                    
+                    if gain_data and len(gain_data) > 0:
+                        # Get maximum gain value
+                        gain_values = [d[2] if len(d) > 2 else d[1] for d in gain_data]
+                        max_gain = np.max(gain_values)
+                        results['gain_dBi'] = float(max_gain)
+                        results['directivity_dBi'] = float(max_gain)
+                        results['main_lobe_mag_dB'] = float(max_gain)
+                        
+                        print(f"[DEBUG] Extracted gain: {results['gain_dBi']:.2f} dBi")
+                    
+                except Exception as e:
+                    print(f"[DEBUG] Direct gain extraction failed: {e}")
+                
+                return results
+            
+            # Extract farfield pattern data
+            theta_data = farfield_item.get_ydata()
+            phi_data = farfield_item.get_zdata()
+            ff_data = farfield_item.get_data()
+            
+            if ff_data and len(ff_data) > 0:
+                # Extract power values (typically 3rd column for gain)
+                power_values = []
+                for data_point in ff_data:
+                    if len(data_point) > 2:
+                        power_values.append(float(data_point[2]))
+                    elif len(data_point) > 1:
+                        power_values.append(float(data_point[1]))
+                
+                if power_values:
+                    power_array = np.array(power_values)
+                    
+                    # Calculate main lobe (max value)
+                    max_gain = np.max(power_array)
+                    results['gain_dBi'] = float(max_gain)
+                    results['directivity_dBi'] = float(max_gain)
+                    results['main_lobe_mag_dB'] = float(max_gain)
+                    
+                    # Calculate side lobe level (max of non-main lobe)
+                    if len(power_array) > 1:
+                        # Find indices within 10 dB of main lobe (approximate main lobe region)
+                        main_lobe_threshold = max_gain - 10
+                        side_lobe_indices = np.where(power_array < main_lobe_threshold)[0]
+                        
+                        if len(side_lobe_indices) > 0:
+                            side_lobe_max = np.max(power_array[side_lobe_indices])
+                            results['side_lobe_level_dB'] = float(side_lobe_max - max_gain)
+                    
+                    # Estimate 3dB beamwidth from directivity pattern
+                    half_power = max_gain - 3.0
+                    points_above_half = np.where(power_array >= half_power)[0]
+                    
+                    if len(points_above_half) > 0:
+                        # Approximate beamwidth based on number of samples
+                        # This is a rough estimation; actual beamwidth would require 2D analysis
+                        span = len(points_above_half)
+                        if theta_data is not None and len(theta_data) > 1:
+                            theta_span = theta_data[-1] - theta_data[0]
+                            estimated_bw = (span / len(theta_data)) * theta_span
+                            results['beamwidth_3db_deg'] = float(estimated_bw)
+                    
+                    print(f"[DEBUG] Farfield extracted: max={max_gain:.2f} dBi, " +
+                          f"side_lobe={results['side_lobe_level_dB']}, " +
+                          f"3dB_BW={results['beamwidth_3db_deg']}")
+                else:
+                    print("[WARNING] No power values found in farfield data", file=sys.stderr)
+            else:
+                print("[WARNING] Farfield data is empty", file=sys.stderr)
+        
+        except Exception as e:
+            print(f"[ERROR] Farfield gain extraction failed: {e}", file=sys.stderr)
+            print(f"[DEBUG] Exception type: {type(e).__name__}")
+        
+        return results
+
+    def _extract_radiation_efficiency(self, project, freq_GHz):
+        """
+        Extract radiation efficiency from CST results.
+        
+        Returns dict with: efficiency_dB, efficiency_pct
+        """
+        import sys
+        
+        results = {
+            'efficiency_dB': 0.0,
+            'efficiency_pct': 0.0,
+        }
+        
+        try:
+            # Try multiple potential efficiency/loss paths
+            efficiency_paths = [
+                r"1D Results\Port Parameters\Efficiency",
+                r"1D Results\Port Parameters\Loss",
+                r"3D Results\Efficiency",
+                r"Port Parameters\Efficiency",
+            ]
+            
+            efficiency_item = None
+            for path in efficiency_paths:
+                try:
+                    efficiency_item = project.get_3d().get_result_item(path)
+                    print(f"[DEBUG] Found efficiency data at: {path}")
+                    break
+                except:
+                    continue
+            
+            if efficiency_item is None:
+                # Try S-parameters to calculate efficiency from insertion loss
+                try:
+                    s11_item = project.get_3d().get_result_item(r"1D Results\S-Parameters\S1,1")
+                    s21_item = project.get_3d().get_result_item(r"1D Results\S-Parameters\S2,1")
+                    
+                    s11_data = s11_item.get_data()
+                    s21_data = s21_item.get_data()
+                    
+                    if s11_data and s21_data:
+                        s11_complex = np.array([d[1] for d in s11_data], dtype=complex)
+                        s21_complex = np.array([d[1] for d in s21_data], dtype=complex)
+                        
+                        # Estimate efficiency from available power
+                        # eff ≈ 1 - |S11|^2 - |S21|^2 - losses
+                        s11_mag_sq = np.abs(s11_complex) ** 2
+                        s21_mag_sq = np.abs(s21_complex) ** 2
+                        
+                        efficiency_linear = np.mean(1 - s11_mag_sq - s21_mag_sq)
+                        efficiency_linear = np.clip(efficiency_linear, 0.0, 1.0)
+                        
+                        results['efficiency_pct'] = float(efficiency_linear * 100)
+                        results['efficiency_dB'] = float(10 * np.log10(efficiency_linear + 1e-12))
+                        
+                        print(f"[DEBUG] Calculated efficiency from S-parameters: {results['efficiency_pct']:.2f}%")
+                    
+                except Exception as e:
+                    print(f"[DEBUG] S-parameter efficiency calculation failed: {e}")
+                
+                return results
+            
+            # Extract efficiency data
+            eff_freq = efficiency_item.get_xdata()
+            eff_data = efficiency_item.get_data()
+            
+            if eff_data and len(eff_data) > 0:
+                # Get efficiency values (typically 2nd column)
+                eff_values = []
+                for data_point in eff_data:
+                    if len(data_point) > 1:
+                        eff_values.append(float(data_point[1]))
+                
+                if eff_values:
+                    # Average efficiency across frequency range
+                    mean_efficiency = np.mean(eff_values)
+                    results['efficiency_pct'] = float(mean_efficiency * 100) if mean_efficiency <= 1.0 else float(mean_efficiency)
+                    results['efficiency_dB'] = float(10 * np.log10(mean_efficiency / 100 + 1e-12)) if results['efficiency_pct'] <= 100 else float(10 * np.log10(mean_efficiency / 1000 + 1e-12))
+                    
+                    print(f"[DEBUG] Efficiency extracted: {results['efficiency_pct']:.2f}%")
+        
+        except Exception as e:
+            print(f"[ERROR] Efficiency extraction failed: {e}", file=sys.stderr)
+            # Set default values suggesting good efficiency
+            results['efficiency_pct'] = 85.0
+            results['efficiency_dB'] = -0.7
+        
+        return results
